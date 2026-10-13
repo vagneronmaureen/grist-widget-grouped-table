@@ -929,6 +929,10 @@
   /* Rendu principal                                                    */
   /* ------------------------------------------------------------------ */
   function render() {
+    try { renderMain(); } catch (e) { reportError("affichage", e); }
+  }
+
+  function renderMain() {
     var root = $('content');
     var sy = window.scrollY;
     root.innerHTML = '';
@@ -1094,20 +1098,53 @@
   /* ------------------------------------------------------------------ */
   /* Données Grist                                                      */
   /* ------------------------------------------------------------------ */
-  function init() {
-    wire();
-    grist.ready({ requiredAccess: 'full' });
+  /* Les erreurs sont affichées dans le widget (bandeau rouge) au lieu de rester silencieuses */
+  function reportError(where, e) {
+    var msg = e && e.message ? e.message : String(e);
+    if (window.console) console.error('[Vue groupée DSFR] ' + where, e);
+    showMsg('Erreur (' + where + ') : ' + msg, 'error');
+  }
+  function safe(where, fn) {
+    return function () {
+      try { return fn.apply(this, arguments); } catch (e) { reportError(where, e); }
+    };
+  }
 
-    grist.onOptions(function (opts) {
+  function init() {
+    window.addEventListener('error', function (e) { reportError('script', e.error || e.message); });
+    window.addEventListener('unhandledrejection', function (e) { reportError('promesse', e.reason); });
+
+    if (typeof grist === 'undefined') {
+      $('content').append(h('p', { class: 'gv-empty' }, 'L\'API Grist n\'a pas pu être chargée (grist-plugin-api.js).'));
+      return;
+    }
+    if (window.parent === window) {
+      $('content').append(h('div', { class: 'fr-callout gv-hint' },
+        h('p', { class: 'fr-callout__text' }, 'Cette page doit être ouverte comme widget personnalisé dans Grist, pas directement dans le navigateur : elle reçoit les données depuis Grist.')));
+      return;
+    }
+
+    try { grist.ready({ requiredAccess: 'full' }); } catch (e) { reportError('grist.ready', e); }
+    try { wire(); } catch (e) { reportError('initialisation', e); }
+
+    grist.onOptions(safe('options', function (opts) {
       state.opts = Object.assign({}, DEFAULTS, opts || {});
       state.opts.colWidths = (state.opts.colWidths && typeof state.opts.colWidths === 'object' && !Array.isArray(state.opts.colWidths))
         ? Object.assign({}, state.opts.colWidths) : {};
       if (!Array.isArray(state.opts.order1)) state.opts.order1 = [];
       if (!Array.isArray(state.opts.order2)) state.opts.order2 = [];
       requestRender();
-    });
+    }));
 
-    grist.onRecords(function (records) {
+    setTimeout(function () {
+      if (!state.gotRecords) {
+        showMsg('Aucune donnée reçue de Grist. Vérifiez dans le panneau du widget : la table source est bien sélectionnée, ' +
+                'et l\'accès est « Accès complet au document ».', 'warning');
+      }
+    }, 5000);
+
+    grist.onRecords(safe('données', function (records) {
+      state.gotRecords = true;
       state.records = records || [];
       if (state.records.length) {
         state.columns = Object.keys(state.records[0]).filter(function (k) {
@@ -1121,12 +1158,12 @@
       if (firstOrChanged && state.columns.length) {
         loadMeta().then(function () { requestRender(); });
       }
-    }, { includeColumns: 'shown' });
+    }), { includeColumns: 'shown' });
 
-    grist.onRecord(function (rec) {
+    grist.onRecord(safe('curseur', function (rec) {
       state.cursorId = rec ? rec.id : null;
       highlightCursor();
-    });
+    }));
 
     render();
   }
