@@ -1451,7 +1451,7 @@
       return;
     }
 
-    try { grist.ready({ requiredAccess: 'full' }); } catch (e) { reportError('grist.ready', e); }
+    try { grist.ready({ requiredAccess: 'full', allowSelectBy: true }); } catch (e) { reportError('grist.ready', e); }
     // Permet à d'autres widgets de la page d'utiliser cette vue comme source (« Sélectionner par »)
     try { if (grist.allowSelectBy) grist.allowSelectBy(); } catch (e) { reportError('allowSelectBy', e); }
     try { wire(); } catch (e) { reportError('initialisation', e); }
