@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="fr" data-fr-scheme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vue groupée DSFR</title>
+
+  <!-- DSFR : styles principaux + icônes utilitaires -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@gouvfr/dsfr@1.13.0/dist/dsfr.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@gouvfr/dsfr@1.13.0/dist/utility/icons/icons.min.css">
+
+  <style>
+    [hidden] { display: none !important; }
+    html, body { margin: 0; background: var(--background-default-grey); }
+    body { padding: .4rem .75rem 1.25rem; font-size: .875rem; }
+
+    /* Barre supérieure compacte : roue dentée + récap sur une ligne */
+    .gv-bar {
+      display: flex; align-items: center; gap: .5rem; flex-wrap: nowrap;
+      padding: .25rem 0 .4rem; margin-bottom: .4rem; border-bottom: 1px solid var(--border-default-grey);
+      position: sticky; top: 0; z-index: 40; background: var(--background-default-grey);
+    }
+    .gv-recap { display: flex; align-items: center; gap: .35rem; flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
+    .gv-recap .fr-tag { flex: none; }
+    .gv-recap__none, .gv-recap__sep { color: var(--text-mention-grey); font-size: .8125rem; }
+    .gv-summary { font-size: .75rem; color: var(--text-mention-grey); white-space: nowrap; }
+    .gv-actions { display: flex; gap: .25rem; flex: none; }
+
+    /* Fenêtre de configuration */
+    dialog.gv-dlg { border: 0; padding: 0; width: min(34rem, 94vw); max-height: 88vh; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+    dialog.gv-dlg::backdrop { background: rgba(22, 22, 22, .64); }
+    .gv-dlg__in { display: flex; flex-direction: column; max-height: 88vh; }
+    .gv-dlg__head { padding: 1rem 1.5rem 0; }
+    .gv-dlg__head h2 { font-size: 1.125rem; margin: 0 0 .25rem; }
+    .gv-dlg__head p { margin: 0; font-size: .8125rem; color: var(--text-mention-grey); }
+    .gv-dlg__foot { display: flex; gap: .5rem; justify-content: space-between; padding: 0 1.5rem 1.25rem; flex-wrap: wrap; }
+    .gv-dlg__foot .gv-right { display: flex; gap: .5rem; margin-left: auto; }
+
+    .gv-cfg { padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; }
+    .gv-level { border: 1px solid var(--border-default-grey); border-left: 4px solid var(--border-active-blue-france); padding: .75rem 1rem; margin: 0; }
+    .gv-level legend { font-weight: 700; font-size: .875rem; padding: 0 .25rem; }
+    .gv-level .fr-select-group { margin-bottom: .5rem; }
+    .gv-level .fr-select { margin-top: .25rem; }
+    .gv-level label.fr-label { font-size: .8125rem; }
+    .gv-level__row { display: flex; gap: .75rem; align-items: flex-end; flex-wrap: wrap; }
+    .gv-level__row > .fr-select-group { flex: 1; min-width: 10rem; margin-bottom: 0; }
+
+    /* Groupes niveau 1 (accordéons DSFR) */
+    .gv-groups { list-style: none; padding: 0; margin: 0; }
+    .gv-groups > li { padding: 0; margin: 0 0 .25rem; }
+    .gv-groups > li::before { content: none; }
+    .gv-acc .fr-accordion__btn { display: flex; align-items: center; gap: .75rem; text-align: left; }
+    .gv-acc__title { flex: 1; }
+    .gv-body { padding: .5rem .75rem .75rem; background: var(--background-default-grey); }
+    .gv-acc > .gv-body { border-bottom: 1px solid var(--border-default-grey); }
+
+    /* Groupes niveau 2 */
+    .gv-subs { display: flex; flex-direction: column; gap: .35rem; }
+    .gv-sub { border: 1px solid var(--border-default-grey); border-left: 4px solid var(--border-active-blue-france); }
+    .gv-sub__btn {
+      display: flex; align-items: center; gap: .5rem; width: 100%;
+      padding: .5rem .75rem; background: var(--background-alt-blue-france); border: 0;
+      font: inherit; font-weight: 700; color: var(--text-action-high-blue-france); text-align: left; cursor: pointer;
+    }
+    .gv-sub__btn:hover { background: var(--background-alt-blue-france-hover); }
+    .gv-sub__title { flex: 1; }
+    .gv-chevron { transition: transform .15s; }
+    .gv-sub__btn[aria-expanded="true"] .gv-chevron { transform: rotate(90deg); }
+    .gv-sub > .gv-body { padding: .5rem; }
+
+    /* Tableaux */
+    .gv-table { margin: 0 !important; }
+    .gv-table .fr-table__content { overflow-x: auto; }
+    .gv-table table { table-layout: fixed; max-width: none !important; min-width: 0; }
+    .gv-table td { overflow-wrap: anywhere; }
+    .gv-table th { position: relative; }
+    .gv-th-lbl { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: .5rem; }
+    /* poignée de redimensionnement */
+    .gv-rz { position: absolute; top: 0; bottom: 0; right: 0; width: 10px; cursor: col-resize; touch-action: none; z-index: 2; }
+    .gv-rz::after { content: ''; position: absolute; top: 20%; bottom: 20%; right: 4px; width: 2px; background: var(--border-default-grey); }
+    .gv-rz:hover::after, .gv-rz.is-active::after { background: var(--border-active-blue-france); width: 3px; right: 3px; }
+    body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-select: none !important; }
+    .gv-table table { font-size: .8125rem; }
+    .gv-table th, .gv-table td { padding: .4rem .75rem !important; }
+    .gv-table caption { display: none; }
+    .gv-level__row--open { margin-top: .75rem; }
+    .gv-table tbody tr, .gv-table tbody td { transition: background-color .08s; }
+    .gv-table tbody tr:hover > td { background: var(--background-alt-blue-france) !important; }
+    .gv-table tbody tr.is-cursor > td { background: var(--background-contrast-info) !important; }
+    .gv-table tbody tr.is-cursor:hover > td { background: var(--background-contrast-info-hover) !important; }
+    /* curseur : barre de texte (I) = modifiable, flèche = lecture seule */
+    .gv-table td.gv-td { cursor: text; }
+    .gv-table td.gv-td.is-ro { cursor: default; }
+    .gv-table td.gv-td.is-editing { cursor: auto; }
+    .gv-table td .gv-cb:disabled { cursor: not-allowed; }
+    .gv-count { flex: none; }
+    .gv-empty { color: var(--text-mention-grey); text-align: center; padding: 2rem 0; }
+
+    /* Cellules éditables */
+    .gv-table td[tabindex] { outline-offset: -2px; vertical-align: middle; }
+    .gv-table td.gv-td:focus { outline: 2px solid var(--border-active-blue-france); }
+    .gv-table td.is-ro { color: var(--text-mention-grey); }
+    .gv-table td.gv-num { text-align: right; font-variant-numeric: tabular-nums; }
+    .gv-table td.is-editing { padding: .15rem .25rem !important; }
+    .gv-table td .fr-input, .gv-table td .fr-select { margin: 0; width: 100%; min-width: 0; padding: .3rem .5rem; box-shadow: inset 0 -2px 0 0 var(--border-active-blue-france); }
+    .gv-table td .gv-ta { resize: none; overflow: auto; min-height: 2rem; }
+    .gv-cb { width: 1.1rem; height: 1.1rem; accent-color: #000091; cursor: pointer; vertical-align: middle; }
+    .gv-pill {
+      display: inline-block; margin: 0 .25rem .15rem 0; padding: .05rem .5rem; border-radius: 1rem;
+      font-size: .75rem; line-height: 1.25rem; background: var(--background-contrast-grey); color: var(--text-default-grey);
+    }
+    .gv-add { margin-top: .5rem; }
+    #alert { position: sticky; top: 2.6rem; z-index: 50; }
+    #alert .fr-alert { margin-bottom: .5rem; }
+
+    /* Fenêtre de choix multiple (liste de choix / liste de références) */
+    .gv-pop {
+      position: fixed; z-index: 1000; min-width: 15rem; max-width: 24rem; max-height: 20rem;
+      display: flex; flex-direction: column; gap: .5rem; padding: .5rem;
+      background: var(--background-default-grey); border: 1px solid var(--border-default-grey);
+      box-shadow: 0 6px 18px rgba(0,0,0,.25);
+    }
+    .gv-pop__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+    .gv-pop__list li { padding: .15rem 0; margin: 0; }
+    .gv-pop__list li::before { content: none; }
+    .gv-pop__list label { display: flex; align-items: center; gap: .5rem; cursor: pointer; }
+    .gv-pop__foot { display: flex; justify-content: flex-end; gap: .5rem; }
+
+    /* Ordre manuel */
+    .gv-order { list-style: none; margin: .75rem 1.5rem; padding: 0; overflow-y: auto; border: 1px solid var(--border-default-grey); }
+    .gv-order__item {
+      display: flex; align-items: center; gap: .5rem; padding: .25rem .5rem;
+      border-bottom: 1px solid var(--border-default-grey); background: var(--background-default-grey); cursor: grab;
+    }
+    .gv-order__item:last-child { border-bottom: 0; }
+    .gv-order__item.is-over { box-shadow: inset 0 3px 0 var(--border-active-blue-france); }
+    .gv-order__item.is-dragging { opacity: .4; }
+    .gv-order__item::before { content: none; }
+    .gv-order__handle { color: var(--text-mention-grey); letter-spacing: -2px; user-select: none; }
+    .gv-order__label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .gv-order__item.is-unused .gv-order__label { color: var(--text-mention-grey); font-style: italic; }
+  </style>
+</head>
+
+<body>
+  <!-- Barre compacte : configuration (roue dentée) + récap des regroupements -->
+  <header class="gv-bar">
+    <button id="gear" type="button" class="fr-btn fr-btn--tertiary fr-btn--sm fr-icon-settings-5-line"
+            title="Configuration du regroupement">Configuration</button>
+    <div id="recap" class="gv-recap" aria-live="polite"></div>
+    <span id="summary" class="gv-summary"></span>
+    <div class="gv-actions">
+      <button id="expand" type="button" class="fr-btn fr-btn--tertiary fr-btn--sm fr-icon-arrow-down-s-line"
+              title="Tout déplier">Tout déplier</button>
+      <button id="collapse" type="button" class="fr-btn fr-btn--tertiary fr-btn--sm fr-icon-arrow-up-s-line"
+              title="Tout replier">Tout replier</button>
+    </div>
+  </header>
+
+  <div id="alert" aria-live="assertive"></div>
+  <main id="content"></main>
+
+  <!-- Configuration du regroupement -->
+  <dialog id="cfg" class="gv-dlg" aria-labelledby="cfg-title">
+    <div class="gv-dlg__in">
+      <div class="gv-dlg__head">
+        <h2 id="cfg-title">Configuration du regroupement</h2>
+        <p>Les réglages s'appliquent immédiatement et sont enregistrés avec le widget.</p>
+      </div>
+
+      <div class="gv-cfg">
+        <fieldset class="gv-level">
+          <legend>Niveau 1</legend>
+          <div class="fr-select-group">
+            <label class="fr-label" for="g1">Regrouper par</label>
+            <select id="g1" class="fr-select"></select>
+          </div>
+          <div class="gv-level__row">
+            <div class="fr-select-group">
+              <label class="fr-label" for="s1">Ordre des groupes</label>
+              <select id="s1" class="fr-select">
+                <option value="az">A → Z</option>
+                <option value="za">Z → A</option>
+                <option value="count_desc">Effectif ↓</option>
+                <option value="count_asc">Effectif ↑</option>
+                <option value="manual">Manuel</option>
+              </select>
+            </div>
+            <button id="o1" type="button" class="fr-btn fr-btn--secondary fr-btn--sm fr-icon-arrow-up-down-line fr-btn--icon-left" hidden>Ordonner</button>
+          </div>
+          <div class="gv-level__row gv-level__row--open">
+            <div class="fr-select-group">
+              <label class="fr-label" for="oc1">État à l'ouverture</label>
+              <select id="oc1" class="fr-select">
+                <option value="none">Tous pliés</option>
+                <option value="first">Seul le premier est déplié</option>
+                <option value="all">Tous dépliés</option>
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="gv-level" id="grp2" hidden>
+          <legend>Niveau 2 (imbriqué)</legend>
+          <div class="fr-select-group">
+            <label class="fr-label" for="g2">Puis par</label>
+            <select id="g2" class="fr-select"></select>
+          </div>
+          <div class="gv-level__row">
+            <div class="fr-select-group">
+              <label class="fr-label" for="s2">Ordre des groupes</label>
+              <select id="s2" class="fr-select">
+                <option value="az">A → Z</option>
+                <option value="za">Z → A</option>
+                <option value="count_desc">Effectif ↓</option>
+                <option value="count_asc">Effectif ↑</option>
+                <option value="manual">Manuel</option>
+              </select>
+            </div>
+            <button id="o2" type="button" class="fr-btn fr-btn--secondary fr-btn--sm fr-icon-arrow-up-down-line fr-btn--icon-left" hidden>Ordonner</button>
+          </div>
+          <div class="gv-level__row gv-level__row--open">
+            <div class="fr-select-group">
+              <label class="fr-label" for="oc2">État à l'ouverture (dans chaque groupe)</label>
+              <select id="oc2" class="fr-select">
+                <option value="none">Tous pliés</option>
+                <option value="first">Seul le premier est déplié</option>
+                <option value="all">Tous dépliés</option>
+              </select>
+            </div>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="gv-dlg__foot">
+        <button id="cfg-reset-widths" type="button" class="fr-btn fr-btn--tertiary fr-btn--sm">Réinitialiser les largeurs de colonnes</button>
+        <div class="gv-right">
+          <button id="cfg-close" type="button" class="fr-btn fr-btn--sm">Fermer</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Ordre manuel des groupes -->
+  <dialog id="dlg" class="gv-dlg" aria-labelledby="dlg-title">
+    <div class="gv-dlg__in">
+      <div class="gv-dlg__head">
+        <h2 id="dlg-title">Ordre des groupes</h2>
+        <p>Glissez-déposez les lignes, ou utilisez les flèches. Toutes les valeurs possibles de la colonne sont listées, y compris celles qui n'ont pas (encore) de données (en italique).</p>
+      </div>
+      <ul id="dlg-list" class="gv-order"></ul>
+      <div class="gv-dlg__foot">
+        <button id="dlg-az" type="button" class="fr-btn fr-btn--tertiary fr-btn--sm">Trier A → Z</button>
+        <div class="gv-right">
+          <button id="dlg-cancel" type="button" class="fr-btn fr-btn--secondary fr-btn--sm">Annuler</button>
+          <button id="dlg-save" type="button" class="fr-btn fr-btn--sm">Enregistrer l'ordre</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- API Grist (obligatoire dans le HTML du Custom Widget Builder) -->
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <!-- Hébergé à part plus tard : <script src="widget_groupes_dsfr.js"></script>
+       Dans le Custom Widget Builder, le JS se colle dans l'onglet JavaScript. -->
+</body>
+</html>
