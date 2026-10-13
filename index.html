@@ -289,7 +289,7 @@
     columns: [], allKeys: [], styles: {}, ruleCols: [], ruleData: {},
     meta: {},
     tableId: null,
-    cursorId: null,
+    cursorId: null, pickId: null, allRecords: [],
     opts: Object.assign({}, DEFAULTS, { colWidths: {} }),
     touched: new Map(),     // clé de groupe -> true/false (choix de l'utilisateur)
     force: null,            // 'all' | 'none' après « Tout déplier / replier »
@@ -418,14 +418,17 @@
     // Ce widget est-il lié (« Sélectionner par ») à une autre vue de la page ?
     state.link = null;
     if (bestK >= 0 && S.linkSrcSectionRef && S.linkSrcSectionRef[bestK]) {
-      var srcRef = S.linkSrcSectionRef[bestK], title = '';
+      var srcRef = S.linkSrcSectionRef[bestK], title = '', same = false;
       for (var q = 0; q < S.id.length; q++) {
         if (S.id[q] !== srcRef) continue;
+        same = S.tableRef[q] === tref;
         title = S.title && S.title[q] ? S.title[q] : '';
         if (!title) { var ti2 = T.id.indexOf(S.tableRef[q]); title = ti2 >= 0 ? T.tableId[ti2] : ''; }
         break;
       }
-      state.link = { title: title || 'vue liée' };
+      // lien « curseur, même table » : Grist ne filtre pas, il place le curseur du widget sur la ligne choisie dans la vue source
+      var noCols = !(S.linkSrcColRef && S.linkSrcColRef[bestK]) && !(S.linkTargetColRef && S.linkTargetColRef[bestK]);
+      state.link = { title: title || 'vue liée', cursorMode: same && noCols };
     }
     return best && best.length ? best : null;
   }
@@ -867,8 +870,18 @@
     }
     var tt = state.link.title.length > 22 ? state.link.title.slice(0, 22) + '…' : state.link.title;
     var txt = 'Lié à « ' + tt + ' »';
-    if (state.totalRows != null) txt += ' · ' + state.records.length + ' / ' + state.totalRows + ' lignes';
+    if (linkMode()) txt += ' · ' + state.records.length + ' / ' + state.allRecords.length + ' lignes';
+    else if (state.totalRows != null) txt += ' · ' + state.records.length + ' / ' + state.totalRows + ' lignes';
     el.append(h('span', { class: 'fr-badge fr-badge--info fr-badge--sm fr-badge--no-icon', style: 'text-transform:none;white-space:nowrap', title: 'Lié à « ' + state.link.title + ' ». Grist ne devrait transmettre que les lignes correspondantes.' }, txt));
+  }
+
+  /* Lignes effectivement affichées : en lien « curseur », seule la ligne liée à la vue source */
+  function linkMode() { return !!(state.link && state.link.cursorMode); }
+  function curId() { return linkMode() ? state.pickId : state.cursorId; }
+  function applyLink() {
+    state.records = linkMode()
+      ? state.allRecords.filter(function (r) { return r.id === state.cursorId; })
+      : state.allRecords;
   }
 
   function updateRecap() {
@@ -1317,6 +1330,12 @@
     try { if (grist.setSelectedRows) grist.setSelectedRows(id == null ? null : [id]); } catch (e) { /* hors Grist */ }
   }
   function selectRow(id) {
+    if (linkMode()) {   // le curseur appartient à la vue source : on ne le déplace pas
+      state.pickId = id;
+      publishSelection(id);
+      highlightCursor();
+      return;
+    }
     if (id === state.cursorId) return;
     try { grist.setCursorPos({ rowId: id }); } catch (e) { /* hors Grist */ }
     publishSelection(id);
@@ -1332,7 +1351,7 @@
     })));
     var tbody = h('tbody');
     rows.forEach(function (r) {
-      var tr = h('tr', { 'data-id': r.id, class: r.id === state.cursorId ? 'is-cursor' : '' });
+      var tr = h('tr', { 'data-id': r.id, class: r.id === curId() ? 'is-cursor' : '' });
       cols.forEach(function (c) {
         var td = h('td', { tabindex: '0', 'data-id': r.id, 'data-col': c });
         renderCell(td, r, c);
@@ -1433,7 +1452,8 @@
 
     if (!state.records.length) {
       $('summary').textContent = '0 enregistrement';
-      root.append(h('p', { class: 'gv-empty' }, state.columns.length ? 'Aucun enregistrement à afficher.' : 'En attente des données…'));
+      root.append(h('p', { class: 'gv-empty' }, linkMode() ? 'Sélectionnez une ligne dans la vue « ' + state.link.title + ' ».'
+        : (state.columns.length ? 'Aucun enregistrement à afficher.' : 'En attente des données…')));
       return;
     }
 
@@ -1492,8 +1512,8 @@
 
   function highlightCursor() {
     document.querySelectorAll('tr.is-cursor').forEach(function (tr) { tr.classList.remove('is-cursor'); });
-    if (state.cursorId == null) return;
-    document.querySelectorAll('tr[data-id="' + state.cursorId + '"]').forEach(function (tr) { tr.classList.add('is-cursor'); });
+    if (curId() == null) return;
+    document.querySelectorAll('tr[data-id="' + curId() + '"]').forEach(function (tr) { tr.classList.add('is-cursor'); });
   }
 
   /* ------------------------------------------------------------------ */
@@ -1652,6 +1672,7 @@
       lastMetaLoad = Date.now();
       loadMeta().then(function () {
         state.columns = visibleColumns();
+        applyLink();
         requestRender();
         loadRuleData();
       });
@@ -1659,13 +1680,14 @@
 
     grist.onRecords(safe('données', function (records) {
       state.gotRecords = true;
-      state.records = records || [];
+      state.allRecords = records || [];
+      applyLink();
       // comme le widget « drop-down filter » : on publie une sélection dès la première réception de données
       if (!state.selPublished) { state.selPublished = true; publishSelection(state.cursorId); }
       // si le filtre d'une vue liée change, une cellule en cours d'édition peut disparaître : on ferme l'éditeur
       if (state.editing && !state.records.some(function (r) { return r.id === state.editing.rec.id; })) state.editing.finish(false);
-      if (state.records.length) {
-        state.allKeys = Object.keys(state.records[0]).filter(function (k) {
+      if (state.allRecords.length) {
+        state.allKeys = Object.keys(state.allRecords[0]).filter(function (k) {
           return k !== 'id' && k.indexOf('gristHelper_') !== 0;
         });
       }
@@ -1695,7 +1717,7 @@
        ne déclenchent pas onRecords ; on compare donc les identifiants et on redessine si besoin. */
     var refetching = false;
     function refetch() {
-      if (!state.link || refetching || state.editing || !grist.fetchSelectedTable) return;
+      if (!state.link || linkMode() || refetching || state.editing || !grist.fetchSelectedTable) return;
       refetching = true;
       Promise.resolve(grist.fetchSelectedTable({ includeColumns: 'normal' })).then(function (t) {
         var ids = (t && t.id) || [];
@@ -1708,7 +1730,7 @@
           keys.forEach(function (k) { r[k] = t[k][i]; });
           return r;
         });
-        state.records = recs;
+        state.allRecords = recs; applyLink();
         requestRender();
       }).catch(function () { /* ignoré */ }).then(function () { refetching = false; });
     }
@@ -1717,6 +1739,7 @@
     grist.onRecord(safe('curseur', function (rec) {
       refetch();
       state.cursorId = rec ? rec.id : null;
+      if (linkMode()) { applyLink(); requestRender(); return; }
       highlightCursor();
       publishSelection(state.cursorId);   // la sélection suit toujours la ligne courante
     }));
