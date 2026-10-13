@@ -351,7 +351,7 @@
       choiceOptions: w.choiceOptions || {},
       tz: base === 'DateTime' ? (arg || null) : null,
       refTable: (base === 'Ref' || base === 'RefList') ? arg : null,
-      refVisible: null, refLabels: new Map(), refOptions: [],
+      refVisible: null, refWidget: {}, refLabels: new Map(), refOptions: [],
     };
     if (['Attachments', 'Id', 'ManualSortPos', 'PositionNumber'].indexOf(base) !== -1) m.readOnly = true;
     return m;
@@ -410,7 +410,8 @@
       }
       fields.sort(function (a, b) { return a.pos - b.pos; });
       var ids = fields.map(function (x) { return x.colId; });
-      var score = ids.filter(function (c) { return have.has(c); }).length - (ids.length - ids.filter(function (c) { return have.has(c); }).length) * 0.5;
+      var mine = state.opts && state.opts.wid && S.options && String(S.options[k]).indexOf(state.opts.wid) !== -1;
+      var score = (mine ? 1000 : 0) + ids.filter(function (c) { return have.has(c); }).length - (ids.length - ids.filter(function (c) { return have.has(c); }).length) * 0.5;
       if (score > bestScore) { bestScore = score; best = ids; bestK = k; bestFields = fields; }
     }
     buildStyles(bestFields, tref, C);
@@ -581,6 +582,7 @@
         if (m.refTable) {
           var vi = C.visibleCol ? C.visibleCol[j] : 0;
           m.refVisible = vi && byId[vi] !== undefined ? C.colId[byId[vi]] : null;
+          m.refWidget = vi && byId[vi] !== undefined ? parseJSON(C.widgetOptions[byId[vi]]) : {};
           refs.push(m);
         }
         meta[colId] = m;
@@ -858,10 +860,14 @@
 
   /* Pastille « Filtré par <vue> » quand le widget est lié à une autre vue de la page */
   function linkChip(el) {
-    if (!state.link) return;
-    var txt = 'Lié à « ' + state.link.title + ' »';
+    if (!state.link) {
+      el.append(h('span', { class: 'fr-badge fr-badge--sm fr-badge--no-icon', title: 'Aucune vue source détectée dans le panneau « Sélectionner par » de ce widget.' }, 'Non lié à une autre vue · ' + state.records.length + ' lignes'));
+      return;
+    }
+    var tt = state.link.title.length > 22 ? state.link.title.slice(0, 22) + '…' : state.link.title;
+    var txt = 'Lié à « ' + tt + ' »';
     if (state.totalRows != null) txt += ' · ' + state.records.length + ' / ' + state.totalRows + ' lignes';
-    el.append(h('span', { class: 'fr-badge fr-badge--info fr-badge--sm fr-badge--no-icon', title: 'Ce widget est lié à une autre vue : Grist ne lui transmet que les lignes correspondantes.' }, txt));
+    el.append(h('span', { class: 'fr-badge fr-badge--info fr-badge--sm fr-badge--no-icon', style: 'text-transform:none;white-space:nowrap', title: 'Lié à « ' + state.link.title + ' ». Grist ne devrait transmettre que les lignes correspondantes.' }, txt));
   }
 
   function updateRecap() {
@@ -905,10 +911,27 @@
   /* ------------------------------------------------------------------ */
   function pill(text, opt) {
     var el = h('span', { class: 'gv-pill' }, text);
-    if (opt && (opt.fillColor || opt.textColor)) {
-      el.setAttribute('style', (opt.fillColor ? 'background:' + opt.fillColor + ';' : '') + (opt.textColor ? 'color:' + opt.textColor + ';' : ''));
+    if (opt) {
+      var st = (opt.fillColor ? 'background:' + opt.fillColor + ';' : '') + (opt.textColor ? 'color:' + opt.textColor + ';' : '') +
+        (opt.fontBold ? 'font-weight:700;' : '') + (opt.fontItalic ? 'font-style:italic;' : '');
+      var deco = (opt.fontUnderline ? 'underline ' : '') + (opt.fontStrikethrough ? 'line-through' : '');
+      if (deco) st += 'text-decoration:' + deco + ';';
+      if (st) el.setAttribute('style', st);
     }
     return el;
+  }
+
+  /* titre de groupe : même présentation que la cellule (pastille colorée des choix, style de la colonne) */
+  function groupTitle(col, label) {
+    var m = metaFor(col);
+    if ((m.base === 'Choice' || m.base === 'ChoiceList') && m.choiceOptions[label]) return pill(label, m.choiceOptions[label]);
+    var rco = (m.refWidget && m.refWidget.choiceOptions) || {};
+    if ((m.base === 'Ref' || m.base === 'RefList') && rco[label]) return pill(label, rco[label]);
+    if (m.base === 'Choice' || m.base === 'ChoiceList' || m.base === 'RefList') return label === EMPTY_LABEL ? document.createTextNode(label) : pill(label);
+    var span = h('span', null, label);
+    var st = state.styles && state.styles[col] && state.styles[col].base;
+    if (st && label !== EMPTY_LABEL) applyStyle(span, st);
+    return span;
   }
 
   function renderCell(td, rec, col) {
@@ -936,8 +959,17 @@
         (Array.isArray(raw) ? raw : []).forEach(function (c) { td.append(pill(String(c), m.choiceOptions[c])); });
         break;
       case 'RefList':
-        (Array.isArray(raw) ? raw : []).forEach(function (id) { td.append(pill(m.refLabels.has(id) ? m.refLabels.get(id) : String(id))); });
+        (Array.isArray(raw) ? raw : []).forEach(function (id) {
+          var lb = m.refLabels.has(id) ? m.refLabels.get(id) : String(id);
+          td.append(pill(lb, (m.refWidget.choiceOptions || {})[lb]));
+        });
         break;
+      case 'Ref': {
+        var rtxt = displayText(col, rec[col]);
+        var rco = (m.refWidget.choiceOptions || {})[rtxt];
+        if (rco) td.append(pill(rtxt, rco)); else td.textContent = rtxt;
+        break;
+      }
       default:
         td.textContent = displayText(col, rec[col]);
     }
@@ -1374,7 +1406,7 @@
       });
       var btn = h('button', { type: 'button', class: 'gv-sub__btn', 'aria-expanded': String(isOpen) },
         h('span', { class: 'fr-icon-arrow-right-s-line fr-icon--sm gv-chevron', 'aria-hidden': 'true' }),
-        h('span', { class: 'gv-sub__title' }, g.label),
+        h('span', { class: 'gv-sub__title' }, groupTitle(col2, g.label)),
         badge(g.rows.length));
       btn.addEventListener('click', function () { toggleKey(key, btn, lb); });
       wrap.append(h('div', { class: 'gv-sub' }, btn, lb.body));
@@ -1435,7 +1467,7 @@
         return g2() ? renderLevel2(g.label, g.rows, cols) : buildTable(g.rows, cols, g.label);
       });
       var btn = h('button', { type: 'button', class: 'fr-accordion__btn', 'aria-expanded': String(isOpen) },
-        h('span', { class: 'gv-acc__title' }, g.label), badge(g.rows.length));
+        h('span', { class: 'gv-acc__title' }, groupTitle(col1, g.label)), badge(g.rows.length));
       btn.addEventListener('click', function () { toggleKey(key, btn, lb); });
       ul.append(h('li', null,
         h('section', { class: 'fr-accordion gv-acc' },
@@ -1597,11 +1629,14 @@
 
     grist.onOptions(safe('options', function (opts) {
       state.opts = Object.assign({}, DEFAULTS, opts || {});
+      var newTok = false;
+      if (!state.opts.wid) { state.opts.wid = 'w' + Math.random().toString(36).slice(2, 10); newTok = true; }
       state.opts.colWidths = (state.opts.colWidths && typeof state.opts.colWidths === 'object' && !Array.isArray(state.opts.colWidths))
         ? Object.assign({}, state.opts.colWidths) : {};
       if (!Array.isArray(state.opts.order1)) state.opts.order1 = [];
       if (!Array.isArray(state.opts.order2)) state.opts.order2 = [];
       requestRender();
+      if (newTok) { save(); setTimeout(function () { reloadMeta(); }, 1500); }
     }));
 
     setTimeout(function () {
@@ -1655,7 +1690,31 @@
       if (Date.now() - lastMetaLoad > 3000 && state.columns.length) reloadMeta();
     });
 
+    /* Relecture explicite des lignes visibles (filtre du lien) : certaines mises à jour du lien
+       ne déclenchent pas onRecords ; on compare donc les identifiants et on redessine si besoin. */
+    var refetching = false;
+    function refetch() {
+      if (!state.link || refetching || state.editing || !grist.fetchSelectedTable) return;
+      refetching = true;
+      Promise.resolve(grist.fetchSelectedTable({ includeColumns: 'normal' })).then(function (t) {
+        var ids = (t && t.id) || [];
+        var cur = state.records.map(function (r) { return r.id; });
+        var same = ids.length === cur.length && ids.every(function (x, i) { return x === cur[i]; });
+        if (same) return;
+        var keys = Object.keys(t).filter(function (k) { return k !== 'id'; });
+        var recs = ids.map(function (id, i) {
+          var r = { id: id };
+          keys.forEach(function (k) { r[k] = t[k][i]; });
+          return r;
+        });
+        state.records = recs;
+        requestRender();
+      }).catch(function () { /* ignoré */ }).then(function () { refetching = false; });
+    }
+    setInterval(refetch, 2000);
+
     grist.onRecord(safe('curseur', function (rec) {
+      refetch();
       state.cursorId = rec ? rec.id : null;
       highlightCursor();
       publishSelection(state.cursorId);   // la sélection suit toujours la ligne courante
