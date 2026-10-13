@@ -286,7 +286,7 @@
 
   var state = {
     records: [],
-    columns: [],
+    columns: [], allKeys: [], styles: {}, ruleCols: [], ruleData: {},
     meta: {},
     tableId: null,
     cursorId: null,
@@ -398,21 +398,22 @@
     if (!S || !F || !S.id || !F.id) return null;
     var colById = {};
     for (var j = 0; j < C.id.length; j++) if (C.parentId[j] === tref) colById[C.id[j]] = C.colId[j];
-    var have = new Set(state.columns);
-    var best = null, bestScore = -1, bestK = -1;
+    var have = new Set(state.allKeys || state.columns);
+    var best = null, bestScore = -1, bestK = -1, bestFields = null;
     for (var k = 0; k < S.id.length; k++) {
       if (S.tableRef[k] !== tref || S.parentKey[k] !== 'custom') continue;
       var fields = [];
       for (var f = 0; f < F.id.length; f++) {
         if (F.parentId[f] !== S.id[k]) continue;
         var cid = colById[F.colRef[f]];
-        if (cid !== undefined) fields.push({ pos: F.parentPos[f], colId: cid });
+        if (cid !== undefined) fields.push({ pos: F.parentPos[f], colId: cid, wo: F.widgetOptions ? F.widgetOptions[f] : '', rules: F.rules ? F.rules[f] : null });
       }
       fields.sort(function (a, b) { return a.pos - b.pos; });
       var ids = fields.map(function (x) { return x.colId; });
       var score = ids.filter(function (c) { return have.has(c); }).length - (ids.length - ids.filter(function (c) { return have.has(c); }).length) * 0.5;
-      if (score > bestScore) { bestScore = score; best = ids; bestK = k; }
+      if (score > bestScore) { bestScore = score; best = ids; bestK = k; bestFields = fields; }
     }
+    buildStyles(bestFields, tref, C);
     // Ce widget est-il lié (« Sélectionner par ») à une autre vue de la page ?
     state.link = null;
     if (bestK >= 0 && S.linkSrcSectionRef && S.linkSrcSectionRef[bestK]) {
@@ -426,6 +427,117 @@
       state.link = { title: title || 'vue liée' };
     }
     return best && best.length ? best : null;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Mise en forme du panneau Grist : styles de cellule + règles conditionnelles */
+  /* ------------------------------------------------------------------ */
+  function refIds(v) {
+    if (Array.isArray(v)) return (v[0] === 'L' ? v.slice(1) : v).filter(function (x) { return typeof x === 'number' && x > 0; });
+    return [];
+  }
+
+  function styleOf(w) {
+    var o = {};
+    ['textColor', 'fillColor', 'fontBold', 'fontItalic', 'fontUnderline', 'fontStrikethrough', 'alignment', 'wrap'].forEach(function (k) {
+      if (w && w[k] !== undefined && w[k] !== null && w[k] !== '') o[k] = w[k];
+    });
+    return o;
+  }
+
+  /* state.styles[col] = { base:{...}, rules:[{colId, style}] } ; fusion colonne + champ */
+  function buildStyles(fields, tref, C) {
+    state.styles = {};
+    state.ruleCols = [];
+    if (!fields) return;
+    var colIdx = {};
+    for (var i = 0; i < C.id.length; i++) colIdx[C.id[i]] = i;
+    fields.forEach(function (f) {
+      // retrouver la colonne par colId
+      var row = -1;
+      for (var j = 0; j < C.id.length; j++) if (C.parentId[j] === tref && C.colId[j] === f.colId) { row = j; break; }
+      if (row < 0) return;
+      var colWo = parseJSON(C.widgetOptions[row]);
+      var fWo = parseJSON(f.wo);
+      var hasField = Object.keys(fWo).length > 0;
+      var base = styleOf(colWo);
+      var fs = styleOf(fWo);
+      Object.keys(fs).forEach(function (k) { base[k] = fs[k]; });
+      // règles : celles du champ s'il en a, sinon celles de la colonne
+      var fieldRules = refIds(f.rules);
+      var colRules = C.rules ? refIds(C.rules[row]) : [];
+      var useField = fieldRules.length > 0;
+      var ids = useField ? fieldRules : colRules;
+      var opts = (useField ? fWo : colWo).rulesOptions;
+      var rules = [];
+      ids.forEach(function (rid, n) {
+        var r = colIdx[rid];
+        if (r === undefined) return;
+        var st = styleOf(opts && opts[n] ? opts[n] : {});
+        rules.push({ colId: C.colId[r], style: st });
+        if (state.ruleCols.indexOf(C.colId[r]) === -1) state.ruleCols.push(C.colId[r]);
+      });
+      state.styles[f.colId] = { base: base, rules: rules };
+    });
+  }
+
+  /* valeurs (vrai/faux par ligne) des colonnes d'aide des règles conditionnelles */
+  var ruleTimer = null;
+  function loadRuleData() {
+    if (!state.ruleCols || !state.ruleCols.length || !state.tableId) return;
+    clearTimeout(ruleTimer);
+    ruleTimer = setTimeout(function () {
+      grist.docApi.fetchTable(state.tableId).then(function (t) {
+        var data = {};
+        state.ruleCols.forEach(function (cid) {
+          var mp = new Map();
+          if (t[cid]) for (var i = 0; i < t.id.length; i++) mp.set(t.id[i], !!t[cid][i]);
+          data[cid] = mp;
+        });
+        state.ruleData = data;
+        requestRender();
+      }).catch(function () { /* règles indisponibles : on garde les styles de base */ });
+    }, 250);
+  }
+
+  function cellStyle(col, rec) {
+    var st = state.styles && state.styles[col];
+    if (!st) return null;
+    var s = Object.assign({}, st.base);
+    var done = {};
+    st.rules.forEach(function (r) {
+      var mp = state.ruleData && state.ruleData[r.colId];
+      if (!mp || !mp.get(rec.id)) return;
+      Object.keys(r.style).forEach(function (k) { if (!done[k]) { s[k] = r.style[k]; done[k] = true; } });
+    });
+    return s;
+  }
+
+  function applyStyle(td, s) {
+    td.style.cssText = '';
+    if (!s) return;
+    if (s.textColor) td.style.color = s.textColor;
+    if (s.fillColor) td.style.backgroundColor = s.fillColor;
+    if (s.fontBold) td.style.fontWeight = '700';
+    if (s.fontItalic) td.style.fontStyle = 'italic';
+    var deco = [];
+    if (s.fontUnderline) deco.push('underline');
+    if (s.fontStrikethrough) deco.push('line-through');
+    if (deco.length) td.style.textDecoration = deco.join(' ');
+    if (s.alignment) td.style.textAlign = s.alignment;
+    if (s.wrap === false) td.style.whiteSpace = 'nowrap';
+    else if (s.wrap === true) td.style.whiteSpace = 'pre-wrap';
+  }
+
+  /* colonnes à afficher : celles du panneau « Colonnes visibles », dans leur ordre */
+  function visibleColumns() {
+    var keys = state.allKeys || [];
+    if (state.order && state.order.length) {
+      var have = new Set(keys);
+      var cols = state.order.filter(function (c) { return have.has(c); });
+      if (cols.length) return cols;
+    }
+    return applyPanelOrder(keys);
   }
 
   function applyPanelOrder(cols) {
@@ -803,6 +915,7 @@
     var m = metaFor(col);
     var raw = normVal(m, rec[col]);
     td.textContent = '';
+    applyStyle(td, cellStyle(col, rec));
     td.className = 'gv-td' + (m.readOnly ? ' is-ro' : '') + (m.base === 'Numeric' || m.base === 'Int' ? ' gv-num' : '');
     switch (m.base) {
       case 'Bool': {
@@ -1502,9 +1615,9 @@
     function reloadMeta() {
       lastMetaLoad = Date.now();
       loadMeta().then(function () {
-        var ordered = applyPanelOrder(state.columns);
-        state.columns = ordered;
+        state.columns = visibleColumns();
         requestRender();
+        loadRuleData();
       });
     }
 
@@ -1516,19 +1629,20 @@
       // si le filtre d'une vue liée change, une cellule en cours d'édition peut disparaître : on ferme l'éditeur
       if (state.editing && !state.records.some(function (r) { return r.id === state.editing.rec.id; })) state.editing.finish(false);
       if (state.records.length) {
-        state.columns = Object.keys(state.records[0]).filter(function (k) {
+        state.allKeys = Object.keys(state.records[0]).filter(function (k) {
           return k !== 'id' && k.indexOf('gristHelper_') !== 0;
         });
       }
-      var sig = state.columns.slice().sort().join('|');
+      var sig = state.allKeys.slice().sort().join('|');
       var firstOrChanged = sig !== state.sig;
       state.sig = sig;
-      state.columns = applyPanelOrder(state.columns);
+      state.columns = visibleColumns();
       requestRender();
-      if (firstOrChanged && state.columns.length) {
+      if (firstOrChanged && state.allKeys.length) {
         reloadMeta();
       }
-    }), { includeColumns: 'shown' });
+      loadRuleData();
+    }), { includeColumns: 'normal' });
 
     // Un changement d'ordre dans le panneau ne renvoie pas toujours les données :
     // on relit l'ordre quand le widget reprend le focus.
