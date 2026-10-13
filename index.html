@@ -1485,6 +1485,8 @@
     grist.onRecords(safe('données', function (records) {
       state.gotRecords = true;
       state.records = records || [];
+      // comme le widget « drop-down filter » : on publie une sélection dès la première réception de données
+      if (!state.selPublished) { state.selPublished = true; publishSelection(state.cursorId); }
       if (state.records.length) {
         state.columns = Object.keys(state.records[0]).filter(function (k) {
           return k !== 'id' && k.indexOf('gristHelper_') !== 0;
