@@ -869,26 +869,33 @@
   function fcol() {
     return state.opts.filterOn && state.opts.filterCol && filterCols().indexOf(state.opts.filterCol) !== -1 ? state.opts.filterCol : '';
   }
-  function filterOptions(col) {
-    var m = metaFor(col), out = [], seen = new Set();
-    function add(v, l) { if (!seen.has(v)) { seen.add(v); out.push({ value: v, label: l }); } }
-    if (m.base === 'Choice' || m.base === 'ChoiceList') {
-      m.choices.forEach(function (c) { add(String(c), String(c)); });
-      state.allRecords.forEach(function (r) {
-        var v = normVal(m, r[col]);
-        (Array.isArray(v) ? v : [v]).forEach(function (x) { if (x !== null && x !== undefined && x !== '') add(String(x), String(x)); });
-      });
-    } else {
-      m.refOptions.forEach(function (o) { add(String(o.id), o.label); });
-    }
-    return out;
-  }
-  function matchesFilter(rec, col, val) {
+  /* libellés affichés d'une cellule (une valeur, ou chaque élément d'une liste) : on compare sur le libellé,
+     car Grist peut transmettre pour une référence soit l'identifiant, soit le texte affiché */
+  function labelsOf(rec, col) {
     var m = metaFor(col), v = normVal(m, rec[col]);
     var list = Array.isArray(v) ? v : [v];
-    var vals = list.filter(function (x) { return x !== null && x !== undefined && x !== '' && x !== 0; });
-    if (val === EMPTY_KEY) return vals.length === 0;
-    return vals.some(function (x) { return String(x) === val; });
+    var out = [];
+    list.forEach(function (x) {
+      if (x === null || x === undefined || x === '' || x === 0) return;
+      var l = (m.base === 'Ref' || m.base === 'RefList') && m.refLabels.has(x) ? m.refLabels.get(x) : plainText(x);
+      if (l !== '') out.push(l);
+    });
+    return out;
+  }
+  function filterOptions(col) {
+    var m = metaFor(col), out = [], seen = new Set();
+    function add(l) { if (!seen.has(l)) { seen.add(l); out.push(l); } }
+    var isChoice = m.base === 'Choice' || m.base === 'ChoiceList';
+    if (isChoice) m.choices.forEach(function (c) { add(String(c)); });
+    var present = [];
+    state.allRecords.forEach(function (r) { labelsOf(r, col).forEach(function (l) { if (present.indexOf(l) === -1) present.push(l); }); });
+    if (!isChoice) present.sort(function (a, b) { return a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' }); });
+    present.forEach(add);
+    return out.map(function (l) { return { value: l, label: l }; });
+  }
+  function matchesFilter(rec, col, val) {
+    var ls = labelsOf(rec, col);
+    return val === EMPTY_KEY ? ls.length === 0 : ls.indexOf(val) !== -1;
   }
   function applyFilter() {
     var col = fcol();
