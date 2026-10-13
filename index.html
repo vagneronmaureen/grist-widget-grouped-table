@@ -391,6 +391,42 @@
     }).catch(function () { /* table de référence illisible */ });
   }
 
+  /* Ordre des colonnes du panneau « Colonnes visibles » du widget :
+     on cherche, parmi les widgets personnalisés de la table, celui dont les colonnes
+     visibles correspondent à celles reçues, puis on lit l'ordre de ses champs. */
+  function findPanelOrder(tref, C, S, F) {
+    if (!S || !F || !S.id || !F.id) return null;
+    var colById = {};
+    for (var j = 0; j < C.id.length; j++) if (C.parentId[j] === tref) colById[C.id[j]] = C.colId[j];
+    var have = new Set(state.columns);
+    var best = null, bestScore = -1;
+    for (var k = 0; k < S.id.length; k++) {
+      if (S.tableRef[k] !== tref || S.parentKey[k] !== 'custom') continue;
+      var fields = [];
+      for (var f = 0; f < F.id.length; f++) {
+        if (F.parentId[f] !== S.id[k]) continue;
+        var cid = colById[F.colRef[f]];
+        if (cid !== undefined) fields.push({ pos: F.parentPos[f], colId: cid });
+      }
+      fields.sort(function (a, b) { return a.pos - b.pos; });
+      var ids = fields.map(function (x) { return x.colId; });
+      var score = ids.filter(function (c) { return have.has(c); }).length - (ids.length - ids.filter(function (c) { return have.has(c); }).length) * 0.5;
+      if (score > bestScore) { bestScore = score; best = ids; }
+    }
+    return best && best.length ? best : null;
+  }
+
+  function applyPanelOrder(cols) {
+    var order = state.order;
+    if (!order || !order.length) return cols;
+    var idx = new Map();
+    order.forEach(function (c, i) { idx.set(c, i); });
+    return cols.map(function (c, i) { return { c: c, i: i }; }).sort(function (a, b) {
+      var ia = idx.has(a.c) ? idx.get(a.c) : Infinity, ib = idx.has(b.c) ? idx.get(b.c) : Infinity;
+      return ia !== ib ? ia - ib : a.i - b.i;
+    }).map(function (x) { return x.c; });
+  }
+
   function loadMeta() {
     if (!(window.grist && grist.docApi && grist.docApi.fetchTable)) return Promise.resolve();
     return Promise.resolve().then(function () {
@@ -398,9 +434,14 @@
       return grist.getSelectedTableId();
     }).then(function (tid) {
       state.tableId = tid;
-      return Promise.all([grist.docApi.fetchTable('_grist_Tables'), grist.docApi.fetchTable('_grist_Tables_column')]);
+      return Promise.all([
+        grist.docApi.fetchTable('_grist_Tables'),
+        grist.docApi.fetchTable('_grist_Tables_column'),
+        grist.docApi.fetchTable('_grist_Views_section'),
+        grist.docApi.fetchTable('_grist_Views_section_field'),
+      ]);
     }).then(function (res) {
-      var T = res[0], C = res[1];
+      var T = res[0], C = res[1], S = res[2], F = res[3];
       var ti = T.tableId.indexOf(state.tableId);
       if (ti < 0) throw new Error('Table introuvable');
       var tref = T.id[ti];
@@ -421,6 +462,7 @@
         meta[colId] = m;
       }
       state.meta = meta;
+      state.order = findPanelOrder(tref, C, S, F);
       return Promise.all(refs.map(loadRef));
     }).catch(function (e) {
       if (window.console) console.warn('Métadonnées indisponibles, types déduits des valeurs :', e);
@@ -1417,6 +1459,16 @@
       }
     }, 5000);
 
+    var lastMetaLoad = 0;
+    function reloadMeta() {
+      lastMetaLoad = Date.now();
+      loadMeta().then(function () {
+        var ordered = applyPanelOrder(state.columns);
+        state.columns = ordered;
+        requestRender();
+      });
+    }
+
     grist.onRecords(safe('données', function (records) {
       state.gotRecords = true;
       state.records = records || [];
@@ -1425,14 +1477,21 @@
           return k !== 'id' && k.indexOf('gristHelper_') !== 0;
         });
       }
-      var sig = state.columns.join('|');
+      var sig = state.columns.slice().sort().join('|');
       var firstOrChanged = sig !== state.sig;
       state.sig = sig;
+      state.columns = applyPanelOrder(state.columns);
       requestRender();
       if (firstOrChanged && state.columns.length) {
-        loadMeta().then(function () { requestRender(); });
+        reloadMeta();
       }
     }), { includeColumns: 'shown' });
+
+    // Un changement d'ordre dans le panneau ne renvoie pas toujours les données :
+    // on relit l'ordre quand le widget reprend le focus.
+    window.addEventListener('focus', function () {
+      if (Date.now() - lastMetaLoad > 3000 && state.columns.length) reloadMeta();
+    });
 
     grist.onRecord(safe('curseur', function (rec) {
       state.cursorId = rec ? rec.id : null;
