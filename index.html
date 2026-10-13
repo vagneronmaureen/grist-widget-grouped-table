@@ -414,7 +414,7 @@
       var score = (mine ? 1000 : 0) + ids.filter(function (c) { return have.has(c); }).length - (ids.length - ids.filter(function (c) { return have.has(c); }).length) * 0.5;
       if (score > bestScore) { bestScore = score; best = ids; bestK = k; bestFields = fields; }
     }
-    buildStyles(bestFields, tref, C);
+    try { buildStyles(bestFields, tref, C); } catch (e) { state.styles = {}; state.ruleCols = []; if (window.console) console.warn('styles', e); }
     // Ce widget est-il lié (« Sélectionner par ») à une autre vue de la page ?
     state.link = null;
     if (bestK >= 0 && S.linkSrcSectionRef && S.linkSrcSectionRef[bestK]) {
@@ -588,7 +588,7 @@
         meta[colId] = m;
       }
       state.meta = meta;
-      state.order = findPanelOrder(tref, C, S, F, T);
+      try { state.order = findPanelOrder(tref, C, S, F, T); } catch (e) { state.order = null; if (window.console) console.warn('ordre/lien', e); }
       return Promise.all(refs.map(loadRef)).then(function () {
         if (!state.link) { state.totalRows = null; return; }
         // nombre total de lignes de la table, pour comparer avec ce que Grist transmet au widget
@@ -596,6 +596,7 @@
       });
     }).catch(function (e) {
       if (window.console) console.warn('Métadonnées indisponibles, types déduits des valeurs :', e);
+      showMsg('Métadonnées des colonnes indisponibles (' + (e && e.message ? e.message : e) + ') : types déduits des valeurs, lien non détecté.', 'warning');
     });
   }
 
