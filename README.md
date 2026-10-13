@@ -14,6 +14,7 @@ Widget Grist qui affiche une table sous forme de volets dépliants, avec le desi
 - Configuration dans une fenêtre (roue dentée), récapitulatif sur une ligne en haut
 - Réglages enregistrés avec le widget (partagés entre utilisateurs du document)
 - **Mise en forme du panneau Grist reprise** : couleur du texte et de fond, gras, italique, souligné, barré, alignement, retour à la ligne, couleurs des choix et règles de mise en forme conditionnelle
+- **Filtre** par menu déroulant sur une colonne Choix / Référence (listes comprises)
 - **Vue source pour d'autres widgets** : la ligne sélectionnée peut filtrer une autre vue de la page (voir ci-dessous)
 
 ## Contenu
@@ -59,11 +60,12 @@ Le widget déclare à Grist la ligne sélectionnée (clic sur une cellule, flèc
 Le lien fonctionne comme pour un tableau Grist classique : la table du second widget doit être la même table ou
 contenir une colonne **Référence** vers la table de la vue groupée.
 
-## Vue groupée filtrée par une autre vue
+## Menu déroulant de filtre
 
-Pour que la vue groupée n'affiche que les lignes liées à une autre vue de la page, réglez **Sélectionner par**
-dans le panneau de la vue groupée (section **Données**). Grist ne transmet alors au widget que les lignes correspondantes (le widget demande ses données sans l'option `shown`, qui contournait le filtre),
-et une pastille « Lié à « … » · N / M lignes » s'affiche dans la barre du haut.
+Dans la roue dentée, section **Filtre**, cochez « Afficher un menu déroulant de filtre » puis choisissez une colonne
+de type Choix, Liste de choix, Référence ou Liste de références. Un menu apparaît dans la barre du haut : il ne garde que
+les lignes contenant la valeur choisie (pour une liste, il suffit que la valeur y figure). L'entrée « (vide) » sélectionne
+les lignes sans valeur. La valeur choisie n'est pas enregistrée : elle se remet sur « tous » au rechargement.
 
 ## Mettre à jour
 
@@ -83,5 +85,6 @@ le fichier `index.html` n'est pas publié à la racine du dépôt ou GitHub Page
   rechargez-le pour voir les éléments récemment ajoutés dans la table liée.
 - Une ligne dont la colonne de regroupement est une liste (Liste de choix, Liste de références)
   apparaît dans un groupe par valeur.
+- Le widget n'exploite pas « Sélectionner par » comme cible : utilisez le filtre déroulant ci-dessus.
 - Mise en forme conditionnelle : les règles portant sur la ligne entière ne sont pas reprises (seules celles des colonnes le sont).
 - La suppression et l'ajout de lignes se font dans Grist, pas dans le widget.
