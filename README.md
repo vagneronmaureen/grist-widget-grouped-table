@@ -13,6 +13,7 @@ Widget Grist qui affiche une table sous forme de volets dépliants, avec le desi
 - Largeur des colonnes ajustable (glisser le bord de l'en-tête, double-clic pour réinitialiser)
 - Configuration dans une fenêtre (roue dentée), récapitulatif sur une ligne en haut
 - Réglages enregistrés avec le widget (partagés entre utilisateurs du document)
+- **Vue source pour d'autres widgets** : la ligne sélectionnée peut filtrer une autre vue de la page (voir ci-dessous)
 
 ## Contenu
 
@@ -45,6 +46,17 @@ Widget Grist qui affiche une table sous forme de volets dépliants, avec le desi
 
 Les colonnes sont affichées dans l'ordre de la liste **Colonnes visibles** du panneau de droite : glissez-les dans ce panneau pour les réordonner
 (l'ordre est relu quand vous recliquez dans le widget).
+
+## Filtrer une autre vue avec la ligne sélectionnée
+
+Le widget déclare à Grist la ligne sélectionnée (clic sur une cellule, flèches du clavier) :
+
+1. Ajoutez sur la même page un second widget (tableau, carte, fiche…) sur la table à filtrer.
+2. Dans le panneau de ce second widget, section **Données**, ouvrez **Sélectionner par** et choisissez la vue groupée.
+3. Le second widget n'affiche alors que les enregistrements liés à la ligne sélectionnée.
+
+Le lien fonctionne comme pour un tableau Grist classique : la table du second widget doit être la même table ou
+contenir une colonne **Référence** vers la table de la vue groupée.
 
 ## Mettre à jour
 

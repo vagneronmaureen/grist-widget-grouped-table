@@ -1138,6 +1138,18 @@
     return el;
   }
 
+  /* Sélection de ligne : déplace le curseur Grist ET déclare la ligne comme « sélection »
+     du widget, ce qui permet à d'autres widgets de la page de se lier à celui-ci
+     (« Sélectionner par » → cette vue groupée). */
+  function publishSelection(id) {
+    try { if (grist.setSelectedRows) grist.setSelectedRows(id == null ? null : [id]); } catch (e) { /* hors Grist */ }
+  }
+  function selectRow(id) {
+    if (id === state.cursorId) return;
+    try { grist.setCursorPos({ rowId: id }); } catch (e) { /* hors Grist */ }
+    publishSelection(id);
+  }
+
   function buildTable(rows, cols, caption) {
     var colgroup = h('colgroup', null, cols.map(function (c) {
       return h('col', { 'data-col': c, style: 'width:' + colWidth(c) + 'px' });
@@ -1152,9 +1164,8 @@
       cols.forEach(function (c) {
         var td = h('td', { tabindex: '0', 'data-id': r.id, 'data-col': c });
         renderCell(td, r, c);
-        td.addEventListener('click', function () {
-          try { grist.setCursorPos({ rowId: r.id }); } catch (e) { /* hors Grist */ }
-        });
+        td.addEventListener('click', function () { selectRow(r.id); });
+        td.addEventListener('focus', function () { selectRow(r.id); });
         td.addEventListener('dblclick', function () { startEdit(td, r, c); });
         td.addEventListener('keydown', function (e) {
           if (e.target !== td) return;
@@ -1441,6 +1452,8 @@
     }
 
     try { grist.ready({ requiredAccess: 'full' }); } catch (e) { reportError('grist.ready', e); }
+    // Permet à d'autres widgets de la page d'utiliser cette vue comme source (« Sélectionner par »)
+    try { if (grist.allowSelectBy) grist.allowSelectBy(); } catch (e) { reportError('allowSelectBy', e); }
     try { wire(); } catch (e) { reportError('initialisation', e); }
 
     grist.onOptions(safe('options', function (opts) {
@@ -1496,6 +1509,7 @@
     grist.onRecord(safe('curseur', function (rec) {
       state.cursorId = rec ? rec.id : null;
       highlightCursor();
+      publishSelection(state.cursorId);   // la sélection suit toujours la ligne courante
     }));
 
     render();
