@@ -437,8 +437,12 @@
         break;
       }
       // lien « curseur, même table » : Grist ne filtre pas, il place le curseur du widget sur la ligne choisie dans la vue source
-      var noCols = !(S.linkSrcColRef && S.linkSrcColRef[bestK]) && !(S.linkTargetColRef && S.linkTargetColRef[bestK]);
-      state.link = { title: title || 'vue liée', cursorMode: same && noCols };
+      var sc = S.linkSrcColRef ? S.linkSrcColRef[bestK] : 0, tc = S.linkTargetColRef ? S.linkTargetColRef[bestK] : 0;
+      var colName = function (ref) {
+        for (var z = 0; z < C.id.length; z++) if (C.id[z] === ref) return C.colId[z];
+        return null;
+      };
+      state.link = { title: title || 'vue liée', cursorMode: same, srcColId: sc ? colName(sc) : null, tgtColId: tc ? colName(tc) : null };
     }
     return best && best.length ? best : null;
   }
@@ -898,9 +902,21 @@
   }
   function curId() { return linkMode() ? state.pickId : state.cursorId; }
   function applyLink() {
-    state.records = linkMode()
-      ? state.allRecords.filter(function (r) { return r.id === state.cursorId; })
-      : state.allRecords;
+    if (!linkMode()) { state.records = state.allRecords; return; }
+    var L = state.link, cur = null;
+    state.allRecords.forEach(function (r) { if (r.id === state.cursorId) cur = r; });
+    if (!cur) { state.records = []; return; }
+    // lien « colonne » dans la même table : on recrée le filtre de Grist (colonne cible = valeur de la colonne source de la ligne liée)
+    if (state.opts.linkMode !== 'record' && L && L.srcColId && L.tgtColId) {
+      var want = cur[L.srcColId];
+      var same = function (a, b) {
+        var A = Array.isArray(a) ? a.slice(1) : [a], B = Array.isArray(b) ? b.slice(1) : [b];
+        return A.some(function (x) { return B.indexOf(x) !== -1; });
+      };
+      state.records = state.allRecords.filter(function (r) { return same(r[L.tgtColId], want); });
+      return;
+    }
+    state.records = [cur];
   }
 
   function updateRecap() {
