@@ -394,12 +394,12 @@
   /* Ordre des colonnes du panneau « Colonnes visibles » du widget :
      on cherche, parmi les widgets personnalisés de la table, celui dont les colonnes
      visibles correspondent à celles reçues, puis on lit l'ordre de ses champs. */
-  function findPanelOrder(tref, C, S, F) {
+  function findPanelOrder(tref, C, S, F, T) {
     if (!S || !F || !S.id || !F.id) return null;
     var colById = {};
     for (var j = 0; j < C.id.length; j++) if (C.parentId[j] === tref) colById[C.id[j]] = C.colId[j];
     var have = new Set(state.columns);
-    var best = null, bestScore = -1;
+    var best = null, bestScore = -1, bestK = -1;
     for (var k = 0; k < S.id.length; k++) {
       if (S.tableRef[k] !== tref || S.parentKey[k] !== 'custom') continue;
       var fields = [];
@@ -411,7 +411,19 @@
       fields.sort(function (a, b) { return a.pos - b.pos; });
       var ids = fields.map(function (x) { return x.colId; });
       var score = ids.filter(function (c) { return have.has(c); }).length - (ids.length - ids.filter(function (c) { return have.has(c); }).length) * 0.5;
-      if (score > bestScore) { bestScore = score; best = ids; }
+      if (score > bestScore) { bestScore = score; best = ids; bestK = k; }
+    }
+    // Ce widget est-il lié (« Sélectionner par ») à une autre vue de la page ?
+    state.link = null;
+    if (bestK >= 0 && S.linkSrcSectionRef && S.linkSrcSectionRef[bestK]) {
+      var srcRef = S.linkSrcSectionRef[bestK], title = '';
+      for (var q = 0; q < S.id.length; q++) {
+        if (S.id[q] !== srcRef) continue;
+        title = S.title && S.title[q] ? S.title[q] : '';
+        if (!title) { var ti2 = T.id.indexOf(S.tableRef[q]); title = ti2 >= 0 ? T.tableId[ti2] : ''; }
+        break;
+      }
+      state.link = { title: title || 'vue liée' };
     }
     return best && best.length ? best : null;
   }
@@ -462,8 +474,12 @@
         meta[colId] = m;
       }
       state.meta = meta;
-      state.order = findPanelOrder(tref, C, S, F);
-      return Promise.all(refs.map(loadRef));
+      state.order = findPanelOrder(tref, C, S, F, T);
+      return Promise.all(refs.map(loadRef)).then(function () {
+        if (!state.link) { state.totalRows = null; return; }
+        // nombre total de lignes de la table, pour comparer avec ce que Grist transmet au widget
+        return grist.docApi.fetchTable(state.tableId).then(function (t) { state.totalRows = t.id.length; });
+      });
     }).catch(function (e) {
       if (window.console) console.warn('Métadonnées indisponibles, types déduits des valeurs :', e);
     });
@@ -728,12 +744,21 @@
 
   var SORT_NAMES = { az: 'A → Z', za: 'Z → A', count_desc: 'effectif ↓', count_asc: 'effectif ↑', manual: 'ordre manuel' };
 
+  /* Pastille « Filtré par <vue> » quand le widget est lié à une autre vue de la page */
+  function linkChip(el) {
+    if (!state.link) return;
+    var txt = 'Lié à « ' + state.link.title + ' »';
+    if (state.totalRows != null) txt += ' · ' + state.records.length + ' / ' + state.totalRows + ' lignes';
+    el.append(h('span', { class: 'fr-badge fr-badge--info fr-badge--sm fr-badge--no-icon', title: 'Ce widget est lié à une autre vue : Grist ne lui transmet que les lignes correspondantes.' }, txt));
+  }
+
   function updateRecap() {
     var el = $('recap');
     if (!el) return;
     el.textContent = '';
     if (!g1()) {
       el.append(h('span', { class: 'gv-recap__none' }, 'Aucun regroupement — roue dentée pour configurer'));
+      linkChip(el);
       return;
     }
     el.append(h('span', { class: 'gv-recap__sep' }, 'Regroupé par'));
@@ -742,6 +767,7 @@
       el.append(h('span', { class: 'gv-recap__sep', 'aria-hidden': 'true' }, '›'));
       el.append(h('span', { class: 'fr-tag fr-tag--sm' }, colLabel(g2()) + ' · ' + SORT_NAMES[state.opts.sort2]));
     }
+    linkChip(el);
   }
 
   function updateToolbar() {
@@ -1487,6 +1513,8 @@
       state.records = records || [];
       // comme le widget « drop-down filter » : on publie une sélection dès la première réception de données
       if (!state.selPublished) { state.selPublished = true; publishSelection(state.cursorId); }
+      // si le filtre d'une vue liée change, une cellule en cours d'édition peut disparaître : on ferme l'éditeur
+      if (state.editing && !state.records.some(function (r) { return r.id === state.editing.rec.id; })) state.editing.finish(false);
       if (state.records.length) {
         state.columns = Object.keys(state.records[0]).filter(function (k) {
           return k !== 'id' && k.indexOf('gristHelper_') !== 0;
@@ -1504,6 +1532,11 @@
 
     // Un changement d'ordre dans le panneau ne renvoie pas toujours les données :
     // on relit l'ordre quand le widget reprend le focus.
+    // Un clic dans une autre vue de la page ne ferme pas les fenêtres de choix multiple :
+    // on les valide à la perte de focus, sinon l'affichage resterait figé tant qu'elles sont ouvertes.
+    window.addEventListener('blur', function () {
+      if (state.editing && state.editing.popup) state.editing.finish(true);
+    });
     window.addEventListener('focus', function () {
       if (Date.now() - lastMetaLoad > 3000 && state.columns.length) reloadMeta();
     });

@@ -58,6 +58,12 @@ Le widget déclare à Grist la ligne sélectionnée (clic sur une cellule, flèc
 Le lien fonctionne comme pour un tableau Grist classique : la table du second widget doit être la même table ou
 contenir une colonne **Référence** vers la table de la vue groupée.
 
+## Vue groupée filtrée par une autre vue
+
+Pour que la vue groupée n'affiche que les lignes liées à une autre vue de la page, réglez **Sélectionner par**
+dans le panneau de la vue groupée (section **Données**). Grist ne transmet alors au widget que les lignes correspondantes,
+et une pastille « Lié à « … » · N / M lignes » s'affiche dans la barre du haut.
+
 ## Mettre à jour
 
 Remplacez `index.html` dans le dépôt. GitHub Pages peut mettre une à deux minutes à publier ;
