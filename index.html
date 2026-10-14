@@ -171,6 +171,12 @@
       </div>
 
       <div class="gv-cfg">
+        <div class="fr-checkbox-group fr-checkbox-group--sm">
+          <input type="checkbox" id="sgc">
+          <label class="fr-label" for="sgc">Afficher aussi les colonnes de regroupement dans le tableau
+            <span class="fr-hint-text">Permet de les modifier ; la ligne change de groupe si sa valeur change.</span>
+          </label>
+        </div>
         <fieldset class="gv-level">
           <legend>Filtre</legend>
           <div class="fr-checkbox-group fr-checkbox-group--sm">
@@ -297,7 +303,7 @@
 
   var EMPTY_LABEL = '(vide)';
   var SEP = '\u0001';
-  var DEFAULTS = { filterOn: false, filterCol: '', group1: '', group2: '', sort1: 'az', sort2: 'az', order1: [], order2: [], open1: 'none', open2: 'none' };
+  var DEFAULTS = { showGroupCols: false, filterOn: false, filterCol: '', group1: '', group2: '', sort1: 'az', sort2: 'az', order1: [], order2: [], open1: 'none', open2: 'none' };
 
   var state = {
     records: [],
@@ -941,6 +947,7 @@
     $('g2').disabled = !g1();
     $('s1').value = o.sort1; $('s2').value = o.sort2;
     $('oc1').value = o.open1 || 'none'; $('oc2').value = o.open2 || 'none';
+    $('sgc').checked = !!o.showGroupCols;
     $('fon').checked = !!o.filterOn;
     var fc = $('fcol'), fcs = filterCols();
     fc.textContent = '';
@@ -1280,7 +1287,7 @@
   /* Tableaux                                                           */
   /* ------------------------------------------------------------------ */
   function tableColumns() {
-    var hide = [g1(), g2()].filter(Boolean);
+    var hide = state.opts.showGroupCols ? [] : [g1(), g2()].filter(Boolean);
     var cols = state.columns.filter(function (c) { return hide.indexOf(c) === -1; });
     return cols.length ? cols : state.columns;
   }
@@ -1623,6 +1630,9 @@
     });
     $('cfg').addEventListener('click', function (e) { if (e.target === $('cfg')) $('cfg').close(); });
     $('cfg').addEventListener('close', function () { flushPending(); });
+    $('sgc').addEventListener('change', function (e) {
+      state.opts.showGroupCols = e.target.checked; save(); render();
+    });
     $('fon').addEventListener('change', function (e) {
       state.opts.filterOn = e.target.checked; state.filterVal = '';
       applyFilter(); save(); render();
